@@ -8,6 +8,7 @@ Zappa core library. You may also want to look at `cli.py` and `util.py`.
 
 from __future__ import print_function
 
+import datetime
 import getpass
 import glob
 import hashlib
@@ -297,6 +298,7 @@ class Zappa(object):
             self.lambda_client = self.boto_client('lambda', config=long_config)
             self.events_client = self.boto_client('events')
             self.apigateway_client = self.boto_client('apigateway')
+            self.elbv2_client = self.boto_client('elbv2')
             # AWS ACM certificates need to be created from us-east-1 to be used by API gateway
             east_config = botocore.client.Config(region_name='us-east-1')
             self.acm_client = self.boto_client('acm', config=east_config)
@@ -2196,7 +2198,7 @@ class Zappa(object):
                 restApiId=api_id,
                 stage=stage
             )
-        
+
     def get_all_zones(self):
         """Same behaviour of list_host_zones, but transparently handling pagination."""
         zones = {'HostedZones': []}
@@ -2251,6 +2253,34 @@ class Zappa(object):
         #     pass
 
         return None
+
+    ##
+    # Application Load Balancer
+    ##
+    def update_target_group(self, lambda_arn, lambda_name, target_group_arn):
+        print('Updating ALB permissions.')
+        version_response = self.lambda_client.list_versions_by_function(FunctionName=lambda_name)
+        versions = [v for v in version_response['Versions'] if v != '$LATEST']
+        version = versions[0]
+        lambda_arn_plus_version = "{}:{}".format(lambda_arn, version)
+        statement_id = "{}-{}".format(
+            lambda_name,
+            int(time.mktime(datetime.datetime.utcnow().timetuple())))
+
+        kwargs = dict(
+            Action="lambda:InvokeFunction",
+            FunctionName=lambda_arn_plus_version,
+            Principal="elasticloadbalancing.amazonaws.com",
+            SourceArn=target_group_arn,
+            StatementId=statement_id
+        )
+        response = self.lambda_client.add_permission(**kwargs)
+        print('Updating ALB target group targets.')
+        kwargs = dict(
+            TargetGroupArn=target_group_arn,
+            Targets=[{"Id": lambda_arn}]
+        )
+        response = self.elbv2_client.register_targets(**kwargs)
 
     ##
     # IAM
