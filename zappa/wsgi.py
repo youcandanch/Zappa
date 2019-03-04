@@ -33,14 +33,14 @@ def create_wsgi_request(event_info,
                         trailing_slash=True,
                         binary_support=False,
                         base_path=None,
-                        context_header_mappings={}
+                        context_header_mappings={},
+                        headers={}
                         ):
         """
         Given some event_info via API Gateway,
         create and return a valid WSGI request environ.
         """
         method = event_info['httpMethod']
-        headers = event_info['headers'] or {} # Allow for the AGW console 'Test' button to work (Pull #735)
 
         """
         API Gateway and ALB both started allowing for multi-value querystring

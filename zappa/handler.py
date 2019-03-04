@@ -102,7 +102,7 @@ class LambdaHandler(object):
                 self.load_remote_project_archive(project_archive_path)
 
 
-            # Load compliled library to the PythonPath
+            # Load compiled library to the PythonPath
             # checks if we are the slim_handler since this is not needed otherwise
             # https://github.com/Miserlou/Zappa/issues/776
             is_slim_handler = getattr(self.settings, 'SLIM_HANDLER', False)
@@ -340,6 +340,21 @@ class LambdaHandler(object):
         print("get_function_for_cognito_trigger", self.settings.COGNITO_TRIGGER_MAPPING, trigger, self.settings.COGNITO_TRIGGER_MAPPING.get(trigger))
         return self.settings.COGNITO_TRIGGER_MAPPING.get(trigger)
 
+    def _merge_headers(self, event):
+        """
+        Merge the values of headers and multiValueHeaders into a single dict.
+        """
+        headers = event.get('headers') or {}
+        multi_headers = (event.get('multiValueHeaders') or {}).copy()
+        for h in (set(multi_headers.keys()) | set(headers.keys())):
+            if h not in multi_headers:
+                multi_headers[h] = [headers[h]]
+            elif h in headers:
+                multi_headers[h].append(headers[h])
+            multi_headers[h] = ', '.join(multi_headers[h])
+        return multi_headers
+
+
     def handler(self, event, context):
         """
         An AWS Lambda function which parses specific API Gateway input into a
@@ -413,7 +428,7 @@ class LambdaHandler(object):
             management.call_command(*event['manage'].split(' '))
             return {}
 
-        # This is an AWS-event triggered invokation.
+        # This is an AWS-event triggered invocation.
         elif event.get('Records', None):
 
             records = event.get('Records')
@@ -472,7 +487,7 @@ class LambdaHandler(object):
             if event.get('httpMethod', None):
                 script_name = ''
                 is_elb_context = False
-                headers = event.get('headers')
+                headers = self._merge_headers(event)
                 if event.get('requestContext', None) and event['requestContext'].get('elb', None):
                     # Related: https://github.com/Miserlou/Zappa/issues/1715
                     # inputs/outputs for lambda loadbalancer
@@ -514,6 +529,7 @@ class LambdaHandler(object):
                 # Create the environment for WSGI and handle the request
                 environ = create_wsgi_request(
                     event,
+                    headers=headers,
                     script_name=script_name,
                     base_path=base_path,
                     trailing_slash=self.trailing_slash,
@@ -552,9 +568,14 @@ class LambdaHandler(object):
                         zappa_returndict['body'] = response.get_data(as_text=True)
 
                 zappa_returndict['statusCode'] = response.status_code
-                zappa_returndict['headers'] = {}
-                for key, value in response.headers:
-                    zappa_returndict['headers'][key] = value
+                if 'headers' in event:
+                    zappa_returndict['headers'] = {}
+                    for key, value in response.headers:
+                        zappa_returndict['headers'][key] = value
+                if 'multiValueHeaders' in event:
+                    zappa_returndict['multiValueHeaders'] = {}
+                    for key, value in response.headers:
+                        zappa_returndict['multiValueHeaders'][key] = response.headers.getlist(key)
 
                 # Calculate the total response time,
                 # and log it in the Common Log format.
