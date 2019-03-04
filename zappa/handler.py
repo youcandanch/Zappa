@@ -568,6 +568,7 @@ class LambdaHandler(object):
         except Exception as e:  # pragma: no cover
             # Print statements are visible in the logs either way
             print(e)
+            traceback.print_exc()
             exc_info = sys.exc_info()
             message = ('An uncaught exception happened while servicing this request. '
                        'You can investigate this with the `zappa tail` command.')
